@@ -2125,27 +2125,65 @@ function displayMainPage(mon, builder_list, nonbuilder_list, equipment_list, wor
   local w, h = mon.getSize()
   local buttons = {}
   
-  -- Row 1: Title centered
-  mPrintRowJustified(mon, 1, "center", "RSWarehouse", colors.cyan)
+  -- Row 1: Title bar with time
+  local currentTime = textutils.formatTime(os.time(), false)
+  local timeOfDay = ""
+  local now = os.time()
+  if now >= 5 and now < 7 then
+    timeOfDay = "[sunrise]"
+  elseif now >= 7 and now < 18 then
+    timeOfDay = "[day]"
+  elseif now >= 18 and now < 19.5 then
+    timeOfDay = "[sunset]"
+  else
+    timeOfDay = "[night]"
+  end
   
-  -- Row 2: Status info - left side shows last scan, right shows next/status
-  mon.setCursorPos(2, 2)
-  mon.setTextColor(colors.lightGray)
-  mon.write("Last: " .. textutils.formatTime(statsData.lastScanTime, false))
+  -- Left: Time with day phase
+  mon.setCursorPos(1, 1)
+  mon.setTextColor(colors.yellow)
+  mon.write("Time: " .. currentTime .. " " .. timeOfDay)
   
-  -- Right side - show pause status or countdown
+  -- Center: Colony name (if available)
+  local colonyName = "Colony Manager"
+  if colony then
+    local success, info = pcall(function() return colony.getColonyName and colony.getColonyName() end)
+    if success and info then
+      colonyName = info
+    end
+  end
+  local centerX = math.floor((w - #colonyName) / 2)
+  mon.setCursorPos(centerX, 1)
+  mon.setTextColor(colors.cyan)
+  mon.write(colonyName)
+  
+  -- Right: Countdown or status
   local statusText = ""
   local statusColor = colors.lightGray
   if isNightPaused and not forceUnpause and not SCAN_AT_NIGHT then
-    statusText = "PAUSED (Night)"
+    statusText = "PAUSED"
     statusColor = colors.red
   else
-    statusText = "Next: " .. current_run .. "s"
+    statusText = "Remaining: " .. current_run .. "s"
   end
-  mon.setCursorPos(w - #statusText - 1, 2)
+  mon.setCursorPos(w - #statusText, 1)
   mon.setTextColor(statusColor)
   mon.write(statusText)
-  mon.setTextColor(colors.white)
+  
+  -- Row 2: Last scan info and next scan
+  mon.setCursorPos(1, 2)
+  mon.setTextColor(colors.lightGray)
+  mon.write("Last: " .. textutils.formatTime(statsData.lastScanTime, false))
+  
+  -- Right side - pending/exported counts if any
+  local pendingCount = getTotalPendingCount()
+  local exportedCount = getTotalExportedCount()
+  if pendingCount > 0 or exportedCount > 0 then
+    local trackingText = "Next: " .. exportedCount .. "s"
+    mon.setCursorPos(w - #trackingText, 2)
+    mon.setTextColor(colors.orange)
+    mon.write(trackingText)
+  end
   
   -- Row 3: Separator line
   mon.setCursorPos(1, 3)
@@ -2173,24 +2211,22 @@ function displayMainPage(mon, builder_list, nonbuilder_list, equipment_list, wor
   -- Calculate button dimensions - use 2 rows for height, evenly spaced
   local btnHeight = 2
   local btnY = h - btnHeight + 1  -- Start position for 2-row buttons
-  local btnWidth = math.floor((w - 10) / 5)  -- 5 buttons with spacing
+  local btnWidth = math.floor((w - 8) / 3)  -- 3 buttons with spacing
   
   -- Show force unpause button if paused at night (above the nav buttons)
   if isNightPaused and not forceUnpause and not SCAN_AT_NIGHT then
     buttons.force_unpause = drawButton(mon, 2, btnY - 2, w - 4, "FORCE SCAN", colors.red, colors.white, 1)
   end
   
-  -- Navigation buttons - 2 rows tall, evenly spaced
+  -- Navigation buttons - simplified: STATS, LEGEND, REFRESH only
+  -- LOGS and CONFIG are now in terminal menu (press 'M' in terminal)
   local spacing = 2
   local startX = 2
-  buttons.logs = drawButton(mon, startX, btnY, btnWidth, "LOGS", colors.orange, colors.white, btnHeight)
-  startX = startX + btnWidth + spacing
   buttons.stats = drawButton(mon, startX, btnY, btnWidth, "STATS", colors.cyan, colors.white, btnHeight)
   startX = startX + btnWidth + spacing
   buttons.legend = drawButton(mon, startX, btnY, btnWidth, "LEGEND", colors.yellow, colors.white, btnHeight)
   startX = startX + btnWidth + spacing
-  buttons.settings = drawButton(mon, startX, btnY, btnWidth, "CONFIG", colors.purple, colors.white, btnHeight)
-  buttons.refresh = drawButton(mon, w - btnWidth - 1, btnY, btnWidth, "REFRESH", colors.green, colors.white, btnHeight)
+  buttons.refresh = drawButton(mon, startX, btnY, btnWidth, "REFRESH", colors.green, colors.white, btnHeight)
   
   return buttons
 end
@@ -2557,6 +2593,237 @@ local TIMER = os.startTimer(1)
 
 logMessage("INFO", "GUI initialized - interactive mode enabled")
 
+-- Terminal menu state
+local terminalMenuActive = false
+
+-- Print terminal menu hint
+local function printTerminalHint()
+    print("")
+    print("Press 'M' for terminal menu (Logs, Config, Excluded Items)")
+    print("")
+end
+
+-- Display terminal menu
+local function displayTerminalMenu()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("========================================")
+    print("  ColonyManager-Pro-RS Terminal Menu")
+    print("========================================")
+    print("")
+    print("  [1] View Logs")
+    print("  [2] Configuration Settings")
+    print("  [3] Manage Excluded Items")
+    print("  [4] Force Update from GitHub")
+    print("  [5] View Pending Crafts")
+    print("  [6] Clear All Tracking Data")
+    print("")
+    print("  [0] Return to Monitor View")
+    print("")
+    print("========================================")
+    print("Select an option (0-6): ")
+end
+
+-- Display logs in terminal
+local function displayTerminalLogs()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("========================================")
+    print("           Recent Log Entries")
+    print("========================================")
+    print("")
+    
+    if fs.exists(logFile) then
+        local file = fs.open(logFile, "r")
+        local lines = {}
+        local line = file.readLine()
+        while line do
+            table.insert(lines, line)
+            line = file.readLine()
+        end
+        file.close()
+        
+        -- Show last 15 lines
+        local startIdx = math.max(1, #lines - 14)
+        for i = startIdx, #lines do
+            print(lines[i])
+        end
+    else
+        print("No log file found.")
+    end
+    
+    print("")
+    print("Press any key to return...")
+    os.pullEvent("key")
+end
+
+-- Display config in terminal
+local function displayTerminalConfig()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("========================================")
+    print("         Configuration Settings")
+    print("========================================")
+    print("")
+    print("Scan Interval: " .. time_between_runs .. " seconds")
+    print("Scan at Night: " .. (SCAN_AT_NIGHT and "Yes" or "No"))
+    print("Smart Tool Handling: " .. (SMART_TOOL_HANDLING and "Yes" or "No"))
+    print("Verbose Logging: " .. (VERBOSE_LOGGING and "Yes" or "No"))
+    print("Log Rotation: " .. (LOG_ROTATE_ENABLED and "Yes" or "No"))
+    print("")
+    print("To change settings, edit config.lua")
+    print("")
+    print("Press any key to return...")
+    os.pullEvent("key")
+end
+
+-- Display excluded items in terminal
+local function displayTerminalExcluded()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("========================================")
+    print("          Excluded Items List")
+    print("========================================")
+    print("")
+    
+    local items = getExcludedItemsList()
+    if #items == 0 then
+        print("No excluded items configured.")
+    else
+        for i, item in ipairs(items) do
+            print("  " .. i .. ". " .. item)
+        end
+    end
+    
+    print("")
+    print("[A] Add item  [R] Remove item  [B] Back")
+    
+    while true do
+        local event, key = os.pullEvent("key")
+        if key == keys.a then
+            print("")
+            print("Enter item name to exclude:")
+            local newItem = read()
+            if newItem and #newItem > 0 then
+                addExcludedItem(newItem)
+                print("Added: " .. newItem)
+                sleep(1)
+            end
+            return displayTerminalExcluded()
+        elseif key == keys.r then
+            print("")
+            print("Enter number to remove:")
+            local num = tonumber(read())
+            if num and items[num] then
+                removeExcludedItem(items[num])
+                print("Removed: " .. items[num])
+                sleep(1)
+            end
+            return displayTerminalExcluded()
+        elseif key == keys.b then
+            return
+        end
+    end
+end
+
+-- Display pending crafts in terminal
+local function displayTerminalPending()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("========================================")
+    print("         Pending Crafts Status")
+    print("========================================")
+    print("")
+    
+    local hasPending = false
+    for itemName, craftInfo in pairs(pendingCrafts) do
+        hasPending = true
+        print("  " .. craftInfo.count .. "x " .. itemName)
+        print("    Scans since export: " .. (craftInfo.scansSinceExport or 0))
+    end
+    
+    if not hasPending then
+        print("No pending crafts.")
+    end
+    
+    print("")
+    print("Exported items in transit:")
+    local hasExported = false
+    for itemName, exportInfo in pairs(exportedItems) do
+        hasExported = true
+        print("  " .. exportInfo.count .. "x " .. itemName)
+    end
+    
+    if not hasExported then
+        print("  None")
+    end
+    
+    print("")
+    print("Press any key to return...")
+    os.pullEvent("key")
+end
+
+-- Handle terminal menu
+local function handleTerminalMenu()
+    terminalMenuActive = true
+    displayTerminalMenu()
+    
+    while terminalMenuActive do
+        local event, key = os.pullEvent("key")
+        
+        if key == keys.zero or key == keys.numPad0 then
+            terminalMenuActive = false
+            term.clear()
+            term.setCursorPos(1, 1)
+            printTerminalHint()
+        elseif key == keys.one or key == keys.numPad1 then
+            displayTerminalLogs()
+            displayTerminalMenu()
+        elseif key == keys.two or key == keys.numPad2 then
+            displayTerminalConfig()
+            displayTerminalMenu()
+        elseif key == keys.three or key == keys.numPad3 then
+            displayTerminalExcluded()
+            displayTerminalMenu()
+        elseif key == keys.four or key == keys.numPad4 then
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Forcing update from GitHub...")
+            if fs.exists("updater.lua") then
+                dofile("updater.lua")
+                if forceUpdate then
+                    forceUpdate()
+                end
+            end
+            print("")
+            print("Press any key to return...")
+            os.pullEvent("key")
+            displayTerminalMenu()
+        elseif key == keys.five or key == keys.numPad5 then
+            displayTerminalPending()
+            displayTerminalMenu()
+        elseif key == keys.six or key == keys.numPad6 then
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Clear all tracking data?")
+            print("This will reset pending crafts and exported items.")
+            print("")
+            print("Press Y to confirm, any other key to cancel...")
+            local _, confirmKey = os.pullEvent("key")
+            if confirmKey == keys.y then
+                clearPendingCraftsWarning()
+                print("Tracking data cleared.")
+            else
+                print("Cancelled.")
+            end
+            sleep(1)
+            displayTerminalMenu()
+        end
+    end
+end
+
+printTerminalHint()
+
 while true do
   local e = {os.pullEvent()}
   
@@ -2627,6 +2894,14 @@ while true do
     end
     TIMER = os.startTimer(1)
     
+  elseif e[1] == "key" then
+    -- Handle keyboard input for terminal menu
+    local key = e[2]
+    if key == keys.m then
+      -- Open terminal menu
+      handleTerminalMenu()
+    end
+    
   elseif e[1] == "monitor_touch" then
     local clickX, clickY = e[3], e[4]
     -- Removed DEBUG logging for touch events to improve responsiveness
@@ -2654,12 +2929,6 @@ while true do
         currentButtons = displayMainPage(monitor, builder_list, nonbuilder_list, equipment_list, workorder_list)
         current_run = time_between_runs
         
-      elseif isButtonClicked(currentButtons.logs, clickX, clickY) then
-        currentPage = "logs"
-        logPageOffset = 0
-        currentButtons = displayLogsPage(monitor)
-        logMessage("INFO", "Switched to logs page")
-        
       elseif isButtonClicked(currentButtons.stats, clickX, clickY) then
         currentPage = "stats"
         currentButtons = displayStatsPage(monitor)
@@ -2669,11 +2938,6 @@ while true do
         currentPage = "legend"
         currentButtons = displayLegendPage(monitor)
         logMessage("INFO", "Switched to legend page")
-        
-      elseif isButtonClicked(currentButtons.settings, clickX, clickY) then
-        currentPage = "settings"
-        currentButtons = displaySettingsPage(monitor)
-        logMessage("INFO", "Switched to settings page")
         
       elseif isButtonClicked(currentButtons.refresh, clickX, clickY) then
         -- Manual refresh

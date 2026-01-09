@@ -1,8 +1,17 @@
--- RSWarehouse Auto-Updater
+-- ColonyManager-Pro-RS Auto-Updater
 -- Checks GitHub for newer commits and updates if available
 
 local VERSION_FILE = ".rswarehouse_version"
 local CONFIG_FILE = "config.lua"
+
+-- Helper for colored terminal output
+local function printColor(text, color)
+    if term.isColor() then
+        term.setTextColor(color)
+    end
+    print(text)
+    term.setTextColor(colors.white)
+end
 
 -- Load configuration
 local function loadConfig()
@@ -101,58 +110,71 @@ function checkForUpdates()
     local branch = config.github_branch or "main"
     
     if repo == "YOUR_GITHUB_USERNAME/RSWarehouse" then
-        print("Update check skipped: Configure github_repo in config.lua")
+        printColor("[!] Update check skipped: Configure github_repo in config.lua", colors.orange)
         return false
     end
     
-    print("Checking for updates...")
-    print("Repository: " .. repo)
+    printColor("========================================", colors.cyan)
+    printColor("       Checking for Updates...", colors.cyan)
+    printColor("========================================", colors.cyan)
+    print("")
+    printColor("Repository: " .. repo, colors.lightGray)
     
     -- Get latest commit SHA
     local latestSHA = getLatestCommitSHA(repo, branch)
     if not latestSHA then
-        print("Could not fetch latest version from GitHub")
+        printColor("[X] Could not fetch latest version from GitHub", colors.red)
+        printColor("    Check your internet connection", colors.gray)
         return false
     end
     
     local currentSHA = getCurrentVersion()
-    print("Current version: " .. (currentSHA and currentSHA:sub(1, 7) or "unknown"))
-    print("Latest version:  " .. latestSHA:sub(1, 7))
+    local currentDisplay = currentSHA and currentSHA:sub(1, 7) or "not installed"
+    local latestDisplay = latestSHA:sub(1, 7)
+    
+    print("")
+    print("Current version: " .. currentDisplay)
+    print("Latest version:  " .. latestDisplay)
+    print("")
     
     -- Check if update is needed
     if currentSHA == latestSHA then
-        print("Already up to date!")
+        printColor("[OK] Already up to date!", colors.green)
+        printColor("========================================", colors.cyan)
         return false
     end
     
+    printColor("[>>] New version available!", colors.yellow)
+    printColor("     Downloading updates...", colors.yellow)
     print("")
-    print("New version available! Updating...")
     
     -- Download updated files
     local files = getFileList(repo, branch)
     local allSuccess = true
     
     for _, filename in ipairs(files) do
-        print("  Updating " .. filename .. "...")
+        term.write("  " .. filename .. "... ")
         if downloadFile(repo, branch, filename) then
-            print("    OK")
+            printColor("OK", colors.green)
         else
-            print("    FAILED")
+            printColor("FAILED", colors.red)
             allSuccess = false
         end
     end
     
+    print("")
     if allSuccess then
         -- Save new version
         saveVersion(latestSHA)
-        print("")
-        print("Update complete!")
+        printColor("[OK] Update complete!", colors.green)
+        printColor("========================================", colors.cyan)
         return true
     else
-        print("")
-        print("Update partially failed. Some files may need manual update.")
+        printColor("[!] Update partially failed", colors.orange)
+        printColor("    Some files may need manual update", colors.gray)
         -- Still save version to avoid repeated failed attempts
         saveVersion(latestSHA)
+        printColor("========================================", colors.cyan)
         return true
     end
 end
