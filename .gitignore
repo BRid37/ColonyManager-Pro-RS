@@ -1,0 +1,17 @@
+# RSWarehouse .gitignore
+
+# Log files
+*.log
+*.log.bak
+
+# Runtime files (user-specific)
+excluded_items.txt
+.rswarehouse_version
+.pending_crafts
+.exported_items
+
+# Backup files
+*.bak
+
+# Crash logs (if any)
+crash-*.txt
