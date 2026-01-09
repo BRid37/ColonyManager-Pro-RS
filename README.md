@@ -40,7 +40,7 @@ ColonyManager-Pro-RS is a ComputerCraft/CC:Tweaked program that automatically fu
    - The **Monitor** (for GUI)
 3. Run the installer:
    ```lua
-   pastebin run 4SzRaGjF
+   pastebin run geYwT6PF
    ```
 4. The GitHub repository is already configured for ColonyManager-Pro-RS
 
