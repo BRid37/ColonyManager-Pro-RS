@@ -42,10 +42,14 @@ local excludedCategories = {}
 local EXCLUDED_FILE = "excluded_items.txt"
 
 -- Colony data cache
+-- Disable buildings API by default to prevent NoSuchMethodError crashes
+-- from Advanced Peripherals/MineColonies version incompatibility
+local DISABLE_BUILDINGS_API = (userConfig and userConfig.disable_buildings_api ~= nil) and userConfig.disable_buildings_api or true
 local colonyCache = {
     citizens = nil,
     buildings = nil,
-    lastUpdate = 0
+    lastUpdate = 0,
+    buildingsDisabled = DISABLE_BUILDINGS_API  -- Start disabled if configured
 }
 local CACHE_DURATION = (userConfig and userConfig.cache_duration) or 60
 
@@ -271,6 +275,12 @@ elseif not inColonyResult then
 end
 print("Colony Integrator initialized.")
 logMessage("INFO", "Colony Integrator initialized successfully", { inColony = inColonyResult })
+
+-- Log buildings API status at startup
+if DISABLE_BUILDINGS_API then
+    logMessage("INFO", "Buildings API disabled by config (prevents NoSuchMethodError crashes)")
+    print("Note: Buildings API disabled - tool tier selection uses default behavior")
+end
  
 -- Establish the direction to transport the items into the Warehouse based on
 -- where the entanglement block is sitting. Default to empty string.
@@ -440,8 +450,9 @@ local function updateColonyCache()
         logMessage("WARN", "Failed to get citizens from colony", { error = tostring(citizens) })
     end
     
-    -- getBuildings() can crash the server due to mod compatibility issues
-    -- Only call it if we haven't had a failure before
+    -- getBuildings() can crash the server due to mod compatibility issues (NoSuchMethodError)
+    -- This happens when Advanced Peripherals is compiled against a different MineColonies API version
+    -- Only call it if not disabled by config and we haven't had a runtime failure
     if not colonyCache.buildingsDisabled then
         local success2, buildings = pcall(function() return colony.getBuildings() end)
         if success2 and buildings then

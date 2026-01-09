@@ -117,5 +117,11 @@ return {
     
     -- Cache citizen/building data (reduces API calls)
     cache_colony_data = true,
-    cache_duration = 60  -- seconds
+    cache_duration = 60,  -- seconds
+    
+    -- Disable buildings API to prevent server crashes
+    -- Some versions of Advanced Peripherals/MineColonies have incompatible APIs
+    -- that cause NoSuchMethodError crashes. Set to true to disable getBuildings() calls.
+    -- This disables building-level-based tool tier selection but prevents crashes.
+    disable_buildings_api = true
 }
