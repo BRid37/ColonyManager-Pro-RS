@@ -33,11 +33,22 @@ ColonyManager-Pro-RS is a ComputerCraft/CC:Tweaked program that automatically fu
 
 ### Quick Install (Pastebin)
 
-1. Place an Advanced Computer in your world
-2. Connect the required peripherals
-3. Run: `pastebin run XXXXXXXX` (replace with actual Pastebin code)
+1. Place a computer with a **Modem** and **Monitor** (any size)
+2. Connect the computer to:
+   - A **Refined Storage Bridge** (for item access)
+   - A **Colony Integrator** (for MineColonies data)
+   - The **Monitor** (for GUI)
+3. Run the installer:
+   ```lua
+   pastebin run 4SzRaGjF
+   ```
 4. The GitHub repository is already configured for ColonyManager-Pro-RS
-5. Reboot the computer
+
+The installer will:
+- Download all necessary files from GitHub
+- Create a startup script to run on boot
+- Configure auto-updates from GitHub
+- Reboot the computer to start ColonyManager-Pro-RS
 
 ### Manual Install
 
@@ -57,7 +68,7 @@ Edit `config.lua` to customize:
 ```lua
 return {
     -- GitHub repository for updates
-    github_repo = "YOUR_USERNAME/RSWarehouse",
+    github_repo = "BRid37/ColonyManager-Pro-RS",
     github_branch = "main",
     
     -- Scan interval (seconds)
