@@ -259,12 +259,18 @@ if not colony then
   logMessage("ERROR", "Colony Integrator not found - ensure peripheral is connected")
   error("Colony Integrator not found.") 
 end
-if not colony.isInColony() then 
+
+-- Wrap isInColony in pcall to handle potential API compatibility issues
+local inColonySuccess, inColonyResult = pcall(function() return colony.isInColony() end)
+if not inColonySuccess then
+  logMessage("ERROR", "Failed to check if in colony - API error", { error = tostring(inColonyResult) })
+  print("WARNING: Could not verify colony status - continuing anyway...")
+elseif not inColonyResult then
   logMessage("ERROR", "Colony Integrator is not in a colony - must be placed within colony boundaries")
   error("Colony Integrator is not in a colony.") 
 end
 print("Colony Integrator initialized.")
-logMessage("INFO", "Colony Integrator initialized successfully", { inColony = true })
+logMessage("INFO", "Colony Integrator initialized successfully", { inColony = inColonyResult })
  
 -- Establish the direction to transport the items into the Warehouse based on
 -- where the entanglement block is sitting. Default to empty string.
@@ -430,15 +436,24 @@ local function updateColonyCache()
     local success, citizens = pcall(function() return colony.getCitizens() end)
     if success and citizens then
         colonyCache.citizens = citizens
+    else
+        logMessage("WARN", "Failed to get citizens from colony", { error = tostring(citizens) })
     end
     
-    local success2, buildings = pcall(function() return colony.getBuildings() end)
-    if success2 and buildings then
-        colonyCache.buildings = buildings
+    -- getBuildings() can crash the server due to mod compatibility issues
+    -- Only call it if we haven't had a failure before
+    if not colonyCache.buildingsDisabled then
+        local success2, buildings = pcall(function() return colony.getBuildings() end)
+        if success2 and buildings then
+            colonyCache.buildings = buildings
+        else
+            logMessage("WARN", "Failed to get buildings from colony - disabling this feature", { error = tostring(buildings) })
+            colonyCache.buildingsDisabled = true
+        end
     end
     
     colonyCache.lastUpdate = now
-    logMessage("DEBUG", "Colony cache updated", { citizens = #(colonyCache.citizens or {}), buildings = #(colonyCache.buildings or {}) })
+    logMessage("DEBUG", "Colony cache updated", { citizens = #(colonyCache.citizens or {}), buildings = #(colonyCache.buildings or {}), buildingsDisabled = colonyCache.buildingsDisabled })
 end
 
 --[[
@@ -1940,7 +1955,17 @@ end
 ]]
 function getWorkRequestList(colony)
     requestList = {}
-    workRequests = colony.getRequests()
+    
+    -- Wrap in pcall to prevent server crashes from mod compatibility issues
+    local success, workRequests = pcall(function() return colony.getRequests() end)
+    if not success then
+        logMessage("ERROR", "Failed to get colony requests - API call failed", { error = tostring(workRequests) })
+        return requestList
+    end
+    if not workRequests then
+        logMessage("WARN", "Colony returned nil for getRequests()")
+        return requestList
+    end
     
     logMessage("INFO", "Retrieved citizen work requests from colony", { count = #workRequests })
     statsData.citizenRequests = #workRequests
@@ -1985,7 +2010,17 @@ end
 ]]
 function getWorkOrderResourceList(colony)
     local resourceList = {}
-    local workOrders = colony.getWorkOrders()
+    
+    -- Wrap in pcall to prevent server crashes from mod compatibility issues
+    local success, workOrders = pcall(function() return colony.getWorkOrders() end)
+    if not success then
+        logMessage("ERROR", "Failed to get work orders - API call failed", { error = tostring(workOrders) })
+        return resourceList
+    end
+    if not workOrders then
+        logMessage("WARN", "Colony returned nil for getWorkOrders()")
+        return resourceList
+    end
     
     logMessage("INFO", "Retrieved work orders from colony", { count = #workOrders })
     statsData.workOrders = #workOrders
@@ -1995,7 +2030,12 @@ function getWorkOrderResourceList(colony)
         
         -- Only process claimed work orders (being actively worked on)
         if order.isClaimed then
-            local resources = colony.getWorkOrderResources(order.id)
+            -- Wrap resource fetching in pcall as well
+            local resSuccess, resources = pcall(function() return colony.getWorkOrderResources(order.id) end)
+            if not resSuccess then
+                logMessage("ERROR", "Failed to get work order resources", { orderId = order.id, error = tostring(resources) })
+                resources = nil
+            end
             
             if resources then
                 logMessage("DEBUG", "Work order resources found", { orderId = order.id, type = order.workOrderType, building = order.type })
